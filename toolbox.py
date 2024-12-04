@@ -73,12 +73,56 @@ def derive_dhkey(private_key, public_key_x, public_key_y):
     shared_key = private_key.exchange(ec.ECDH(), peer_public_key)
     return shared_key
 
+def aes_cmac(key, data):
+    if len(key) != 16:
+        raise ValueError("AES key must be 16 bytes (128 bits).")
+    c = CMAC.new(key, ciphermod=AES)  
+    c.update(data)
+    return c.digest()
+
+def aes_ccm_encrypt(session_key, session_nonce, provisioning_data):
+    """
+    Perform AES-CCM encryption.
+
+    Args:
+    - session_key (bytes): 16-byte key used for encryption.
+    - session_nonce (bytes): 13-byte nonce for AES-CCM.
+    - provisioning_data (bytes): The data to encrypt.
+
+    Returns:
+    - tuple: Encrypted data and MIC (Message Integrity Check).
+    """
+    if len(session_key) != 16:
+        raise ValueError("SessionKey must be 16 bytes (128-bit).")
+    if len(session_nonce) != 13:
+        raise ValueError("SessionNonce must be 13 bytes.")
+
+    # Create AES-CCM cipher object
+    cipher = AES.new(session_key, AES.MODE_CCM, nonce=session_nonce, mac_len=8)  # MIC size: 8 bytes
+
+    # Encrypt the data
+    encrypted_data = cipher.encrypt(provisioning_data)
+
+    # Get the Message Integrity Check (MIC)
+    mic = cipher.digest()
+
+    return encrypted_data, mic
+
 def s1(M):
     """
     M is a non-zero length octet array or ASCII encoded string
     """
     #TODO: Implement this function
-    return b'\x00'
+    if isinstance(M, str):  # Convert ASCII strings to bytes
+        M = M.encode()
+    
+    if len(M) == 0:
+        raise ValueError("Input to s1 cannot be empty.")
+    
+    # CMAC generation using AES
+    cmac = CMAC.new(b'\x00' * 16, ciphermod=AES)  # Initialize CMAC with all-zeros key
+    cmac.update(M)
+    return cmac.digest()
 
 def k1(N, SALT, P):
     """
@@ -93,4 +137,17 @@ def k1(N, SALT, P):
     - bytes: The derived key.
     """
     # TODO: Implement this function
-    return b'\x00'
+    if isinstance(N, str):
+        N = N.encode()
+    if isinstance(P, str):
+        P = P.encode()
+    
+    # Step 1: Derive T = CMAC(SALT, N)
+    cmac = CMAC.new(SALT, ciphermod=AES)
+    cmac.update(N)
+    T = cmac.digest()
+    
+    # Step 2: Derive K = CMAC(T, P)
+    cmac = CMAC.new(T, ciphermod=AES)
+    cmac.update(P)
+    return cmac.digest()
